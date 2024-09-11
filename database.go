@@ -13,9 +13,25 @@ import (
 
 // Device
 type Device struct {
-	deviceId  string `db:"deviceId"`
-	ownerId   string `db:"ownerId"`
-	describes string `db:"describes"`
+	DeviceName string `db:"deviceName"`
+	Describes  string `db:"describes"`
+}
+
+// Device
+type Devicename struct {
+	DeviceName string `db:"deviceName"`
+	DeviceId   string `db:"deviceId"`
+}
+
+// Device
+type Filename struct {
+	FileName string `db:"fileName"`
+	FileId   string `db:"fileId"`
+}
+type Sharing struct {
+	shareId  string
+	fileId   string
+	deviceId string
 }
 
 // ConnectMysql
@@ -69,11 +85,11 @@ func AddPerson(Name string, Password string, db *sqlx.DB) {
 // @return 返回查询的项若正常则为nil
 func queryPerson(name string, db *sqlx.DB, sw int) (string, error) { //0是id，1是密码
 	query := `SELECT userId,passWord FROM person where userName=?`
-	type Person struct {
+	type Personpass struct {
 		UserId   string `db:"userId"`
 		PassWord string `db:"passWord"`
 	}
-	var userId Person
+	var userId Personpass
 	err := db.Get(&userId, query, name)
 	if err != nil {
 		println("查询出错")
@@ -197,15 +213,10 @@ func ChangePassword(Name string, db *sqlx.DB) error {
 //	@owner 所有者名
 //	@db 数据库连接对象
 //	@return 没错误就返回nil
-func AddDevice(Name string, describes string, owner string, db *sqlx.DB) error {
+func AddDevice(Name string, describes string, ownerId string, db *sqlx.DB) error {
 	uniqueID := uuid.New().String()
-	ownerId, err := queryPerson(owner, db, 0)
-	if err != nil {
-		log.Println("不存在该用户：", err)
-		return err
-	}
 	query := `INSERT INTO devices(deviceName,describes,deviceId,ownerId) VALUES (?,?,?,?)`
-	_, err = db.Exec(query, Name, describes, uniqueID, ownerId)
+	_, err := db.Exec(query, Name, describes, uniqueID, ownerId)
 	if err != nil {
 		log.Println("设备注册失败：", err)
 		return err
@@ -214,42 +225,58 @@ func AddDevice(Name string, describes string, owner string, db *sqlx.DB) error {
 	return nil
 }
 
-// Querydevice 用设备名查询设备id,所有者id，具体描述
+// Querydevice 查询所有设备
 //
-//	@name 查询设备名
+//	@ownerId 所有者Id
 //	@db 数据库连接
-//	@sw 0代表设备id，1代表所有者id，2代表描述信息
+//	@ownerId 所有者Id
+//	@return 返回Devicaname结构体，若无错误返回nil
+func Querydevice(ownerId string, db *sqlx.DB, sw int) (*Devicename, error) {
+	query := `SELECT deviceName,deviceId FROM devices where ownerId=?`
+	var device Devicename
+	err := db.Get(&device, query, ownerId)
+	if err != nil {
+		println("不存在该设备")
+		return &Devicename{}, err
+	}
+	return &device, nil
+}
+
+// QuerydeviceDescribe 用设备名查询设备id,所有者查询指定的设备
+//
+//	@deviceId 查询设备id
+//	@db 数据库连接
+//	@ownerId 所有者Id
+//	@sw 0代表设备id，1代表描述信息
 //	@return 返回所选数据，若无错误返回nil
-func Querydevice(devicename string, owner string, db *sqlx.DB, sw int) (string, error) {
-	owId, err := queryPerson(owner, db, 0)
-	query := `SELECT deviceId,ownerId,describes FROM devices where deviceName=? AND ownerId=?`
+func QuerydeviceDescribe(deviceId string, ownerId string, db *sqlx.DB, sw int) (string, error) {
+	query := `SELECT deviceName,describes FROM devices where deviceId=? AND ownerId=?`
 	var device Device
-	err = db.Get(&device, query, devicename, owId)
+	err := db.Get(&device, query, deviceId, ownerId)
 	if err != nil {
 		println("不存在该设备")
 		return "", err
 	}
 	if sw == 0 {
-		return device.deviceId, nil
+		return device.DeviceName, nil
 	} else if sw == 1 {
-		return device.ownerId, nil
-	} else if sw == 2 {
-		return device.describes, nil
+		return device.Describes, nil
 	} else {
 		return "", fmt.Errorf("无效的 sw 参数: %d", sw)
 	}
 
 }
 
-//	 Function: Deletedevice
-//	 Description: 删除设备
+//	Function: Deletedevice
+//	Description: 删除设备
 //
-//		@param Name: 设备名
-//	 @param db: 链接数据库对象
-//	 @return 若正常则为nil
-func Deletedevice(Name string, owner string, db *sqlx.DB) error {
-	owId, err := queryPerson(owner, db, 0)
-	_, err = db.Exec("DELETE FROM devices WHERE deviceName = ?AND ownerId=?", Name, owId)
+// @param deviceId: 设备Id
+//
+//	@ownerId 所有者Id
+//	@param db: 链接数据库对象
+//	@return 若正常则为nil
+func Deletedevice(deviceId string, ownerId string, db *sqlx.DB) error {
+	_, err := db.Exec("DELETE FROM devices WHERE deviceId = ?AND ownerId=?", deviceId, ownerId)
 	if err != nil {
 		log.Println("删除设备失败:", err)
 		return err
@@ -258,15 +285,15 @@ func Deletedevice(Name string, owner string, db *sqlx.DB) error {
 	return nil
 }
 
-// Function: ChangeOwner
+// Function: ChangeDevOwner
 // Description: 改变设备所有者
 //
 // @param Name: 登录用户
 // @param newowner: 新的拥有者
 // @param db: 链接数据库对象
 // @return 若正常则为nil
-func ChangeOwner(Name string, oldowner string, newowner string, db *sqlx.DB) error {
-	oldownId, err := queryPerson(oldowner, db, 0)
+func ChangeDevOwner(deviceId string, oldownerId string, newownerId string, db *sqlx.DB) error {
+	oldowner, err := queryPersonById(oldownerId, db)
 	fmt.Printf("该设备属于用户%s\n", oldowner)
 	fmt.Println("若确定修改所有者则输入该用户密码：")
 	inputpassword := GetPassword()
@@ -276,23 +303,17 @@ func ChangeOwner(Name string, oldowner string, newowner string, db *sqlx.DB) err
 		log.Println("密码验证失败:", err)
 		return err
 	}
-	newownerId, err := queryPerson(newowner, db, 0)
-	if err != nil {
-		log.Println("新用户查询失败:", err)
-		return err
-	}
-	deviceid, err := Querydevice(Name, oldowner, db, 0)
-	_, err = db.Exec("UPDATE devices SET ownerId = ?  WHERE deviceId = ? AND ownerId=?", newownerId, deviceid, oldownId)
+	_, err = db.Exec("UPDATE devices SET ownerId = ? WHERE deviceId = ? AND ownerId=?", newownerId, deviceId, oldownerId)
 	if err != nil {
 		log.Println("所有者更新失败:", err)
 		return err
 	}
-	err = updatefileowner(deviceid, oldownId, newownerId, db)
+	err = updatefileowner(deviceId, oldownerId, newownerId, db)
 	if err != nil {
 		log.Println("文件所有者更新失败:", err)
 		return err
 	}
-	err = updateshareowner(deviceid, oldownId, newownerId, db)
+	err = updateshareowner(deviceId, oldownerId, newownerId, db)
 	if err != nil {
 		log.Println("分享者记录所有者更新失败:", err)
 		return err
@@ -336,7 +357,7 @@ func updatefileowner(deviceId string, oldownerid string, newownerid string, db *
 // @return 若正常则为nil
 func updateshareowner(deviceId string, oldownerid string, newownerid string, db *sqlx.DB) error {
 	tx, err := db.Beginx()
-	_, err = db.Exec("UPDATE sharing SET sharedOwerId = ?  WHERE deviceId = ? AND sharedOwerId=?", newownerid, deviceId, oldownerid)
+	_, err = db.Exec("UPDATE sharing SET sharedOwnerId = ?  WHERE deviceId = ? AND sharedOwnerId=?", newownerid, deviceId, oldownerid)
 	if err != nil {
 		log.Println("所有者更新失败:", err)
 		tx.Rollback()
@@ -354,21 +375,15 @@ func updateshareowner(deviceId string, oldownerid string, newownerid string, db 
 
 // AddFile 添加文件
 //
-//	@param devicesname 所属设备名
+//	@param deviceId 所属设备Id
 //	@param fileName 文件名
 //	@param filePath 文件的储存路径
 //	@param db 数据库连接对象
 //	@return 没错误就返回nil
-func AddFile(devicename string, fileName string, filePath string, db *sqlx.DB) error {
+func AddFile(deviceId string, ownerId string, fileName string, filePath string, db *sqlx.DB) error {
 	uniqueID := uuid.New().String()
-	ownerId, err := Querydevice(devicename, db, 1)
-	if err != nil {
-		log.Println("不存在该设备：", err)
-		return err
-	}
-	devicesid, err := Querydevice(devicename, db, 0)
 	query := `INSERT INTO files(deviceId,filePath,fileId,ownerId,fileName) VALUES (?,?,?,?,?)`
-	_, err = db.Exec(query, devicesid, filePath, uniqueID, ownerId, fileName)
+	_, err := db.Exec(query, deviceId, filePath, uniqueID, ownerId, fileName)
 	if err != nil {
 		log.Println("储存文件路径失败：", err)
 		return err
@@ -377,25 +392,41 @@ func AddFile(devicename string, fileName string, filePath string, db *sqlx.DB) e
 	return nil
 }
 
+// QueryAllFile 查询所有该设备所有文件
+//
+//	@deviceId 设备ID
+//	@ownerId 所有者Id
+//	@db 数据库连接
+//	@ownerId 所有者Id
+//	@return 返回Devicaname结构体，若无错误返回nil
+func QueryAllFile(deviceId string, ownerId string, db *sqlx.DB) (*Filename, error) {
+	query := `SELECT fileName,fileId FROM devices where ownerId=? AND deviceId=?`
+	var file Filename
+	err := db.Get(&file, query, ownerId, deviceId)
+	if err != nil {
+		println("不存在该设备")
+		return &Filename{}, err
+	}
+	return &file, nil
+}
+
 // Function: QueryFile
 //
 //	Description: 查询
 //
-//	@param filename: 查询文件名
+//	@param fileId: 查询id
 //	@param db: 链接数据库对象
-//	@param params:分别返回0:文件id，1:设备id，2:所有者id和3:存储路径,请按顺序输入
+//	@param params:分别返回0:文件名，1:存储路径,请按顺序输入
 //	@return string切片存放顺序与数字对应若正常则为nil
-func QueryFile(filename string, db *sqlx.DB, params ...int) ([]string, error) {
-	query := `SELECT fileId,ownerId,deviceId,filepath FROM files where fileName=?`
+func QueryFile(fileId string, db *sqlx.DB, params ...int) ([]string, error) {
+	query := `SELECT fileName,filepath FROM files where fileId=?`
 
 	type File struct {
-		fileid   string `db:"fileId"`
-		ownerid  string `db:"ownerId"`
-		deviceid string `db:"deviceId""`
+		fileName string `db:"fileName"`
 		filepath string `db:"filepath"`
 	}
 	var file File
-	err := db.Get(&file, query, filename)
+	err := db.Get(&file, query, fileId)
 	if err != nil {
 		println("查询出错或文件不存在")
 		return nil, err
@@ -406,12 +437,8 @@ func QueryFile(filename string, db *sqlx.DB, params ...int) ([]string, error) {
 	for _, param := range params {
 		switch param {
 		case 0:
-			result = append(result, file.fileid) // 返回 fileId
+			result = append(result, file.fileName) // 返回 fileId
 		case 1:
-			result = append(result, file.ownerid) // 返回 ownerId
-		case 2:
-			result = append(result, file.deviceid) // 返回 deviceId
-		case 3:
 			result = append(result, file.filepath) // 返回 filepath
 		default:
 			return nil, fmt.Errorf("无效的参数: %d", param)
@@ -423,20 +450,20 @@ func QueryFile(filename string, db *sqlx.DB, params ...int) ([]string, error) {
 
 // Function: DeleteFile
 //
-//	Description: 批量删除文件(以及共享表的删除)
+//	Description: 批量删除文件
 //
 //	@param filename: 查询文件名
 //	@param db: 链接数据库对象
 //	@param filenames:文件名
 //	@return 若正常则为nil
-func DeleteFile(db *sqlx.DB, filenames ...string) error {
+func DeleteFile(db *sqlx.DB, fileId ...string) error {
 	// 如果没有文件名传入，直接返回
-	if len(filenames) == 0 {
+	if len(fileId) == 0 {
 		return nil
 	}
 
 	// 创建一个 IN 查询条件
-	query, args, err := sqlx.In(`DELETE FROM files WHERE fileName IN (?)`, filenames)
+	query, args, err := sqlx.In(`DELETE FROM files WHERE fileId IN (?)`, fileId)
 	if err != nil {
 		fmt.Printf("构建查询失败: %v\n", err)
 		return err
@@ -444,13 +471,11 @@ func DeleteFile(db *sqlx.DB, filenames ...string) error {
 
 	// sqlx.In 会返回一个带有 `?` 的查询，需要 Rebind 以适应数据库方言
 	query = db.Rebind(query)
-
 	_, err = db.Exec(query, args...)
 	if err != nil {
 		fmt.Printf("删除文件失败: %v\n", err)
 		return err
 	}
-	//删除共享表待补充
 	return nil
 }
 
@@ -474,6 +499,13 @@ func Authtenticaton(db *sqlx.DB, ownername string) error {
 	}
 	return nil
 }
+
+//	 Function: CheckDeviceName
+//	 Description: 设备取名前查询是否同名
+//
+//		@param ownerId: 所有人Id
+//	 @param deviceName: 设备名字
+//	 @param db: 链接数据库对象
 func CheckDeviceName(ownerId string, deviceName string, db *sqlx.DB) {
 	query := `SELECT deviceId FROM devices where deviceName=? AND ownerId=? `
 	var deviceid string
@@ -482,11 +514,209 @@ func CheckDeviceName(ownerId string, deviceName string, db *sqlx.DB) {
 		fmt.Println("该设备名已存在，请修改名字")
 	}
 }
+
+//	 Function: CheckFileName
+//	 Description: 文件取名前查询是否同名
+//
+//		@param ownerId: 所有人Id
+//	 @param fileName: 文件名字
+//	 @param db: 链接数据库对象
 func CheckFileName(ownerId string, fileName string, db *sqlx.DB) {
 	query := `SELECT fileId FROM files where fileName=? AND ownerId=? `
 	var fileid string
 	err := db.Get(&fileid, query, fileName, ownerId)
 	if err != nil {
 		fmt.Println("该文件名已存在，请修改名字")
+	}
+}
+
+// Function: ChangeFileOwn
+// Description: 改变分享文件的所有者
+//
+// @param Name: 登录用户
+// @param newowner: 新的拥有者
+// @param db: 链接数据库对象
+// @return 若正常则为nil
+func ChangeFileOwn(fileId string, newdeviceId string, oldownerId string, newownerId string, db *sqlx.DB) error {
+
+	_, err := db.Exec("UPDATE files SET ownerId = ?,deviceId=? WHERE fileId=? AND ownerId=? ", newownerId, newdeviceId, fileId, oldownerId)
+	if err != nil {
+		log.Println("所有者更新失败:", err)
+		return err
+	}
+	err = updateshareown(fileId, newdeviceId, oldownerId, newownerId, db)
+	if err != nil {
+		log.Println("分享者记录所有者更新失败:", err)
+		return err
+	}
+	fmt.Println("所有者更新成功")
+	return nil
+}
+
+func updateshareown(fileId string, newdeviceId string, oldownerId string, newownerId string, db *sqlx.DB) error {
+	_, err := db.Exec("UPDATE sharing SET sharedOwnerId = ?,deviceId=? WHERE fileId=? AND sharedOwnerId=? ", newownerId, newdeviceId, fileId, oldownerId)
+	if err != nil {
+		log.Println("所有者更新失败:", err)
+		return err
+	}
+	fmt.Println("所有者更新成功")
+	return nil
+}
+
+// Addsharing 分享文件添加
+//
+//	@param deviceId 所属设备Id
+//	@param fileName 文件名
+//	@param filePath 文件的储存路径
+//	@param db 数据库连接对象
+//	@return 没错误就返回nil
+func Addsharing(deviceId string, sharedOwnerId string, fileId string, sharedUserId string, db *sqlx.DB) error {
+	uniqueID := uuid.New().String()
+	query := `INSERT INTO files(deviceId,sharedUserId,fileId,sharedOwnerId,fileId) VALUES (?,?,?,?,?)`
+	_, err := db.Exec(query, deviceId, sharedUserId, uniqueID, sharedOwnerId, fileId)
+	if err != nil {
+		log.Println("储存分享记录：", err)
+		return err
+	}
+	fmt.Println("储存分享记录成功")
+	return nil
+}
+
+// Function: DeleteFile
+//
+//	Description: 批量删除文件
+//
+//	@param filename: 查询文件名
+//	@param db: 链接数据库对象
+//	@param filenames:文件名
+//	@return 若正常则为nil
+func DeleteSharingByOwn(db *sqlx.DB, sharedOwnerId string, fileId ...string) error {
+	// 如果没有文件名传入，直接返回
+	if len(fileId) == 0 {
+		return nil
+	}
+
+	// 创建一个 IN 查询条件
+	query, args, err := sqlx.In(`DELETE FROM sharing WHERE sharedOwnerId=? AND IN (?)`, sharedOwnerId, fileId)
+	if err != nil {
+		fmt.Printf("构建查询失败: %v\n", err)
+		return err
+	}
+
+	// sqlx.In 会返回一个带有 `?` 的查询，需要 Rebind 以适应数据库方言
+	query = db.Rebind(query)
+	_, err = db.Exec(query, args...)
+	if err != nil {
+		fmt.Printf("删除分享记录失败: %v\n", err)
+		return err
+	}
+	return nil
+}
+func DeleteSharingByShare(db *sqlx.DB, sharedUserId string, fileId ...string) error {
+	// 如果没有文件名传入，直接返回
+	if len(fileId) == 0 {
+		return nil
+	}
+
+	// 创建一个 IN 查询条件
+	query, args, err := sqlx.In(`DELETE FROM sharing WHERE sharedUserId=? AND IN (?)`, sharedUserId, fileId)
+	if err != nil {
+		fmt.Printf("构建查询失败: %v\n", err)
+		return err
+	}
+
+	// sqlx.In 会返回一个带有 `?` 的查询，需要 Rebind 以适应数据库方言
+	query = db.Rebind(query)
+	_, err = db.Exec(query, args...)
+	if err != nil {
+		fmt.Printf("删除分享记录失败: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+// QueryAllFile 查询所有该设备所有文件
+//
+//	@deviceId 设备ID
+//	@ownerId 所有者Id
+//	@db 数据库连接
+//	@ownerId 所有者Id
+//	@return 返回Devicaname结构体，若无错误返回nil
+func QuerySharing(sharedUserId string, sharedOwnerId string, db *sqlx.DB) (*Sharing, error) {
+	query := `SELECT shareId,fileId,deviceId FROM sharing where sharedOwnerId=? AND sharedUserId=?`
+	var sharing Sharing
+	err := db.Get(&sharing, query, sharedOwnerId, sharedUserId)
+	if err != nil {
+		println("不存在分享记录")
+		return &Sharing{}, err
+	}
+	return &sharing, nil
+}
+func QueryAllSharing(sharedUserId string, db *sqlx.DB) (*Sharing, error) {
+	query := `SELECT shareId,fileId,deviceId FROM sharing where sharedUserId=?`
+	var sharing Sharing
+	err := db.Get(&sharing, query, sharedUserId)
+	if err != nil {
+		println("不存在分享记录")
+		return &Sharing{}, err
+	}
+	return &sharing, nil
+}
+func CreatePersonTable(db *sqlx.DB) {
+	query := "CREATE TABLE IF NOT EXISTS person (" +
+		"userId CHAR(36) PRIMARY KEY NOT NULL," +
+		"userName VARCHAR(50) UNIQUE NOT NULL," +
+		"createAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+		"email VARCHAR(255) NOT NULL," +
+		"passWord VARCHAR(255) NOT NULL)"
+	_, err := db.Exec(query)
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
+
+func CreateDeviceTable(db *sqlx.DB) {
+	query := "CREATE TABLE IF NOT EXISTS devices (" +
+		"deviceId CHAR(36) PRIMARY KEY NOT NULL," +
+		"deviceName VARCHAR(50) NOT NULL," +
+		"createAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+		"describes VARCHAR(255) DEFAULT 'NULL'," +
+		"ownerId CHAR(36) NOT NULL ," +
+		"FOREIGN KEY(ownerId) REFERENCES person(userId) ON DELETE CASCADE" +
+		")"
+	_, err := db.Exec(query)
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
+
+func CreateFileTable(db *sqlx.DB) {
+	query := "CREATE TABLE IF NOT EXISTS files (" +
+		"fileId CHAR(36) PRIMARY KEY NOT NULL," +
+		"fileName VARCHAR(50)  NOT NULL," +
+		"createAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+		"ownerId CHAR(36) NOT NULL," +
+		"filePath VARCHAR(255) NOT NULL," +
+		"deviceId CHAR(36) NOT NULL ," +
+		"FOREIGN KEY(deviceId) REFERENCES devices(deviceId) ON DELETE CASCADE" +
+		")"
+	_, err := db.Exec(query)
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
+func CreateSharingTable(db *sqlx.DB) {
+	query := "CREATE TABLE IF NOT EXISTS sharing (" +
+		"shareId CHAR(36) PRIMARY KEY ," +
+		"deviceId CHAR(36)  NOT NULL," +
+		"createAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+		"sharedOwnerId CHAR(36) NOT NULL," +
+		"sharedUserId CHAR(36) NOT NULL," +
+		"fileId CHAR(36) NOT NULL ," +
+		"FOREIGN KEY(fileId) REFERENCES files(fileId) ON DELETE CASCADE" +
+		")"
+	_, err := db.Exec(query)
+	if err != nil {
+		log.Fatalln(err)
 	}
 }
