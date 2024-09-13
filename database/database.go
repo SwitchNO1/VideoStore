@@ -9,6 +9,7 @@ import (
 	"log"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Device
@@ -17,10 +18,10 @@ type Device struct {
 	Describes  string `db:"describes"`
 }
 
-// Device
-type Devicename struct {
-	DeviceName string `db:"deviceName"`
-	DeviceId   string `db:"deviceId"`
+// Name
+type Name struct {
+	Name string `db:"Name"`
+	Id   string `db:"Id"`
 }
 
 // Device
@@ -48,6 +49,10 @@ func ConnectMysql(params ...string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("连接失败请输入有效地址: %v", err)
 	}
+	// 设置连接池参数
+	db.SetMaxOpenConns(10)                 // 最大打开的连接数
+	db.SetMaxIdleConns(5)                  // 最大空闲连接数
+	db.SetConnMaxLifetime(time.Minute * 5) // 每个连接的最大存活时间
 	err = db.Ping()
 	if err != nil {
 		return nil, fmt.Errorf("网络连接失败请检查网络设置: %v", err)
@@ -76,14 +81,14 @@ func AddPerson(Name string, Password string, db *sqlx.DB) {
 
 }
 
-// Function: queryPerson
+// Function: QueryPerson
 // Description: 查询用户
 //
 // @param name: 登录用户名字
 // @param db: 链接数据库对象
 // @param sw: 0是用户id，1是密码
 // @return 返回查询的项若正常则为nil
-func queryPerson(name string, db *sqlx.DB, sw int) (string, error) { //0是id，1是密码
+func QueryPerson(name string, db *sqlx.DB, sw int) (string, error) { //0是id，1是密码
 	query := `SELECT userId,passWord FROM person where userName=?`
 	type Personpass struct {
 		UserId   string `db:"userId"`
@@ -103,6 +108,18 @@ func queryPerson(name string, db *sqlx.DB, sw int) (string, error) { //0是id，
 		return "", fmt.Errorf("无效的 sw 参数: %d", sw)
 	}
 
+}
+
+func QueryAllPerson(i int, db *sqlx.DB) ([]Name, error) {
+	query := `SELECT userName ,userId FROM person ORDER BY userName DESC LIMIT 10 OFFSET ? `
+	var device []Name
+	offset := (i - 1) * 10
+	err := db.Get(&device, query, offset)
+	if err != nil {
+		println("不存在用户")
+		return nil, err
+	}
+	return device, nil
 }
 
 // queryPersonById 通过id找到用户名
@@ -147,7 +164,7 @@ func GetPassword() string {
 //	@db 数据库连接对象
 //	@return 没问题就返回nil
 func DeletePerson(Name string, db *sqlx.DB) error {
-	password, err := queryPerson(Name, db, 1)
+	password, err := QueryPerson(Name, db, 1)
 	if err != nil {
 		log.Println("查询失败", err)
 		return err
@@ -174,7 +191,7 @@ func DeletePerson(Name string, db *sqlx.DB) error {
 //	@db 数据库连接对象
 //	@return 没错误就返回nil
 func ChangePassword(Name string, db *sqlx.DB) error {
-	password, err := queryPerson(Name, db, 1)
+	password, err := QueryPerson(Name, db, 1)
 	if err != nil {
 		log.Println("查询失败,该用户不存在", err)
 		return err
@@ -231,15 +248,16 @@ func AddDevice(Name string, describes string, ownerId string, db *sqlx.DB) error
 //	@db 数据库连接
 //	@ownerId 所有者Id
 //	@return 返回Devicaname结构体，若无错误返回nil
-func Querydevice(ownerId string, db *sqlx.DB, sw int) (*Devicename, error) {
-	query := `SELECT deviceName,deviceId FROM devices where ownerId=?`
-	var device Devicename
-	err := db.Get(&device, query, ownerId)
+func Querydevice(ownerId string, db *sqlx.DB, page int) ([]Name, error) {
+	query := `SELECT deviceName,deviceId FROM devices where ownerId=? ORDER BY deviceName DESC LIMIT 10 OFFSET ? `
+	var device []Name
+	offset := (page - 1) * 10
+	err := db.Get(&device, query, ownerId, offset)
 	if err != nil {
 		println("不存在该设备")
-		return &Devicename{}, err
+		return nil, err
 	}
-	return &device, nil
+	return device, nil
 }
 
 // QuerydeviceDescribe 用设备名查询设备id,所有者查询指定的设备
@@ -297,7 +315,7 @@ func ChangeDevOwner(deviceId string, oldownerId string, newownerId string, db *s
 	fmt.Printf("该设备属于用户%s\n", oldowner)
 	fmt.Println("若确定修改所有者则输入该用户密码：")
 	inputpassword := GetPassword()
-	password, err := queryPerson(oldowner, db, 1)
+	password, err := QueryPerson(oldowner, db, 1)
 	err = bcrypt.CompareHashAndPassword([]byte(password), []byte(inputpassword))
 	if err != nil {
 		log.Println("密码验证失败:", err)
@@ -399,10 +417,10 @@ func AddFile(deviceId string, ownerId string, fileName string, filePath string, 
 //	@db 数据库连接
 //	@ownerId 所有者Id
 //	@return 返回Devicaname结构体，若无错误返回nil
-func QueryAllFile(deviceId string, ownerId string, db *sqlx.DB) (*Filename, error) {
-	query := `SELECT fileName,fileId FROM devices where ownerId=? AND deviceId=?`
+func QueryAllFile(deviceId string, ownerId string, page int, db *sqlx.DB) (*Filename, error) {
+	query := `SELECT fileName,fileId FROM devices where ownerId=? AND deviceId=? ORDER BY userName DESC LIMIT 10 OFFSET ? `
 	var file Filename
-	err := db.Get(&file, query, ownerId, deviceId)
+	err := db.Get(&file, query, ownerId, deviceId, page)
 	if err != nil {
 		println("不存在该设备")
 		return &Filename{}, err
@@ -491,7 +509,7 @@ func Authtenticaton(db *sqlx.DB, ownername string) error {
 	fmt.Printf("该设备属于用户%s\n", ownername)
 	fmt.Println("若确定删除则输入该用户密码：")
 	inputpassword := GetPassword()
-	password, err := queryPerson(ownername, db, 1)
+	password, err := QueryPerson(ownername, db, 1)
 	err = bcrypt.CompareHashAndPassword([]byte(password), []byte(inputpassword))
 	if err != nil {
 		log.Println("密码验证失败:", err)
